@@ -200,6 +200,9 @@ func (lc *listenCmd) runListenCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse API base url: %w", err)
 	}
 
+	// listen stops the proxy and returns nil when interrupted, so let it keep
+	// its exit status 0 instead of the plugin reaper's exit status 1.
+	handleInterruptInCommand()
 	ctx := withSIGTERMCancel(cmd.Context(), func() {
 		log.WithFields(log.Fields{
 			"prefix": "proxy.Proxy.Run",

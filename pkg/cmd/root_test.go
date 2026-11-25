@@ -378,3 +378,35 @@ func TestMorePermissionsRequiredMessage(t *testing.T) {
 		require.Equal(t, morePermissionsRequiredRoleMessage, morePermissionsRequiredMessage(wrapped))
 	})
 }
+
+func TestReapPluginsOnSignalExitsByDefault(t *testing.T) {
+	interruptHandledByCommand.Store(false)
+	t.Cleanup(func() { interruptHandledByCommand.Store(false) })
+
+	sigCh := make(chan os.Signal, 1)
+	sigCh <- os.Interrupt
+
+	cleanedUp := false
+	exitCode := -1
+	reapPluginsOnSignal(sigCh, func() { cleanedUp = true }, func(code int) { exitCode = code })
+
+	require.True(t, cleanedUp)
+	require.Equal(t, 1, exitCode)
+}
+
+func TestReapPluginsOnSignalLeavesExitToCommandThatHandlesInterrupt(t *testing.T) {
+	interruptHandledByCommand.Store(false)
+	t.Cleanup(func() { interruptHandledByCommand.Store(false) })
+
+	handleInterruptInCommand()
+
+	sigCh := make(chan os.Signal, 1)
+	sigCh <- os.Interrupt
+
+	cleanedUp := false
+	exited := false
+	reapPluginsOnSignal(sigCh, func() { cleanedUp = true }, func(int) { exited = true })
+
+	require.True(t, cleanedUp)
+	require.False(t, exited)
+}

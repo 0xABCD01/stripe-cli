@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"unicode"
 
@@ -171,14 +172,37 @@ func showSuggestion() {
 //
 // plugins.CleanupAllClients kills every client go-plugin is tracking for this process, so one
 // handler covers both the plain "launch one plugin" case and the nested peer-plugin case.
+//
+// The reaper exits the process itself after cleaning up, because most commands have no other
+// way to be interrupted while they are blocked. Commands that do shut down cleanly on their
+// own when interrupted (they watch a context canceled by withSIGTERMCancel and then return)
+// call handleInterruptInCommand: the reaper still cleans up plugin clients on the signal, but
+// leaves the exit to the command, so a clean shutdown keeps its exit status 0 instead of
+// being raced to exit status 1 by the reaper.
 func installPluginReaper() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		plugins.CleanupAllClients()
-		os.Exit(1)
-	}()
+	go reapPluginsOnSignal(sigCh, plugins.CleanupAllClients, os.Exit)
+}
+
+// interruptHandledByCommand is set when the running command handles SIGINT/SIGTERM itself
+// and returns once its context is canceled.
+var interruptHandledByCommand atomic.Bool
+
+// handleInterruptInCommand tells the plugin reaper not to exit the process when a signal
+// arrives, because the running command is already shutting itself down in response to the
+// same signal and its own exit status should win.
+func handleInterruptInCommand() {
+	interruptHandledByCommand.Store(true)
+}
+
+func reapPluginsOnSignal(sigCh <-chan os.Signal, cleanup func(), exit func(int)) {
+	<-sigCh
+	cleanup()
+	if interruptHandledByCommand.Load() {
+		return
+	}
+	exit(1)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

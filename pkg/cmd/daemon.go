@@ -48,6 +48,9 @@ func (dc *daemonCmd) runDaemonCmd(cmd *cobra.Command, args []string) {
 		UserCfg: dc.cfg,
 	}, telemetryClient)
 
+	// The daemon returns when its context is canceled by an interrupt, so let
+	// it keep its exit status 0 instead of the plugin reaper's exit status 1.
+	handleInterruptInCommand()
 	ctx := withSIGTERMCancel(cmd.Context(), func() {
 		log.WithFields(log.Fields{
 			"prefix": "cmd.daemonCmd.runDaemonCmd",
